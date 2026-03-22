@@ -31,6 +31,7 @@ from config import (
     MAX_HISTORY_LENGTH,
 )
 from loader.maps_grounding import search_nearby_places
+from loader.tool_combo import tool_combo_search
 from services.line_service import LineService
 from services.session_manager import get_session_manager
 
@@ -47,7 +48,7 @@ async_http_client = AiohttpAsyncHttpClient(aio_session)
 line_bot_api = AsyncLineBotApi(CHANNEL_ACCESS_TOKEN, async_http_client)
 parser = WebhookParser(CHANNEL_SECRET)
 
-# Gemini client (Vertex AI)
+# Gemini client (Vertex AI) — used for the fallback chat path only
 gemini_client = genai.Client(
     vertexai=True,
     project=GCP_PROJECT,
@@ -130,13 +131,28 @@ async def handle_text(event: MessageEvent, user_id: str):
     else:
         try:
             session = session_manager.get_or_create_session(user_id, _chat_factory)
-            response = session.chat.send_message(
-                f"請用台灣用語的繁體中文回答，不要使用 markdown 格式。\n\n問題：{msg}"
-            )
-            answer = response.text or "（無法取得回覆）"
+
+            # Primary path: Tool Combo when location is known
+            lat = session.metadata.get("lat")
+            lng = session.metadata.get("lng")
+
+            if lat is not None and lng is not None:
+                logger.info(
+                    "Tool Combo path for user %s at (%.4f, %.4f)", user_id, lat, lng
+                )
+                answer = await tool_combo_search(msg, lat, lng)
+            else:
+                # Fallback: regular Gemini chat (no location context)
+                logger.info("Fallback chat path for user %s (no location)", user_id)
+                response = session.chat.send_message(
+                    f"請用台灣用語的繁體中文回答，不要使用 markdown 格式。\n\n問題：{msg}"
+                )
+                answer = response.text or "（無法取得回覆）"
+
             session_manager.add_to_history(user_id, "user", msg)
             session_manager.add_to_history(user_id, "assistant", answer)
             reply = TextSendMessage(text=answer[:4500])
+
         except Exception as e:
             logger.error(f"Chat error: {e}", exc_info=True)
             reply = TextSendMessage(text=LineService.format_error_message(e, "處理訊息"))
@@ -145,9 +161,16 @@ async def handle_text(event: MessageEvent, user_id: str):
 
 
 async def handle_location(event: MessageEvent):
+    user_id = event.source.user_id
     lat = event.message.latitude
     lng = event.message.longitude
     address = event.message.address or "已記錄位置"
+
+    # Persist coordinates in session metadata for Tool Combo
+    session_manager.get_or_create_session(user_id, _chat_factory)
+    session_manager.update_metadata(user_id, "lat", lat)
+    session_manager.update_metadata(user_id, "lng", lng)
+    logger.info("Stored location for user %s: (%.4f, %.4f)", user_id, lat, lng)
 
     quick_reply = QuickReply(items=[
         QuickReplyButton(action=PostbackAction(

@@ -271,6 +271,25 @@ class SessionManager:
                 return True
             return False
 
+    def update_metadata(self, user_id: str, key: str, value: Any) -> bool:
+        """
+        Update a single key in the session's metadata dict.
+
+        Args:
+            user_id: User identifier
+            key:     Metadata key to set
+            value:   Value to store
+
+        Returns:
+            True if the session exists and was updated, False otherwise
+        """
+        with self._lock:
+            session = self._sessions.get(user_id)
+            if session:
+                session.metadata[key] = value
+                return True
+            return False
+
     def get_session_info(self, user_id: str) -> Optional[dict]:
         """
         Get session information for display.

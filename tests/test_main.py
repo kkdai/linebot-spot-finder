@@ -256,3 +256,97 @@ class TestHandlePostback:
             event = make_postback_event("user1", {"action": "unknown_action"})
             await handle_postback(event)
             mock_search.assert_not_called()
+
+
+# ──────────────────────────────────────────────
+# TestToolCombo
+# ──────────────────────────────────────────────
+
+class TestToolCombo:
+    @pytest.mark.asyncio
+    async def test_tool_combo_triggered_when_location_known(self):
+        """When session has lat/lng, tool_combo_search is called instead of chat.send_message."""
+        from services.session_manager import SessionManager
+
+        mock_chat = MagicMock()
+        # send_message should NOT be called in the Tool Combo path
+        mock_chat.send_message = MagicMock(return_value=MagicMock(text="fallback"))
+
+        mgr = SessionManager(timeout_minutes=30)
+        session = mgr.get_or_create_session("user_tc1", lambda: mock_chat)
+        # Pre-populate location metadata
+        session.metadata["lat"] = 25.0330
+        session.metadata["lng"] = 121.5654
+
+        with patch("main.session_manager", mgr), \
+             patch("main.line_bot_api") as mock_api, \
+             patch("main.tool_combo_search", new_callable=AsyncMock) as mock_combo:
+            mock_api.reply_message = AsyncMock()
+            mock_combo.return_value = "Tool Combo 回覆：附近有老王熱炒"
+
+            from main import handle_text
+            event = make_text_event("user_tc1", "附近有什麼好吃的？")
+            await handle_text(event, "user_tc1")
+
+            # tool_combo_search must have been called with correct args
+            mock_combo.assert_awaited_once_with("附近有什麼好吃的？", 25.0330, 121.5654)
+            # chat.send_message must NOT have been called
+            mock_chat.send_message.assert_not_called()
+
+            # Reply should contain the Tool Combo result
+            call_args = mock_api.reply_message.call_args
+            messages = call_args[0][1]
+            assert "老王熱炒" in messages[0].text
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_chat_without_location(self):
+        """When session has no lat/lng, uses the regular Gemini chat path."""
+        mock_response = MagicMock()
+        mock_response.text = "台北有很多美食！"
+
+        mock_chat = MagicMock()
+        mock_chat.send_message = MagicMock(return_value=mock_response)
+
+        from services.session_manager import SessionManager
+        mgr = SessionManager(timeout_minutes=30)
+        mgr.get_or_create_session("user_tc2", lambda: mock_chat)
+        # No lat/lng in metadata
+
+        with patch("main.session_manager", mgr), \
+             patch("main.line_bot_api") as mock_api, \
+             patch("main.tool_combo_search", new_callable=AsyncMock) as mock_combo:
+            mock_api.reply_message = AsyncMock()
+
+            from main import handle_text
+            event = make_text_event("user_tc2", "台北有什麼好吃的？")
+            await handle_text(event, "user_tc2")
+
+            # tool_combo_search must NOT have been called
+            mock_combo.assert_not_awaited()
+            # Fallback chat.send_message must have been called
+            mock_chat.send_message.assert_called_once()
+
+            call_args = mock_api.reply_message.call_args
+            messages = call_args[0][1]
+            assert "美食" in messages[0].text
+
+    @pytest.mark.asyncio
+    async def test_location_stored_in_session_metadata(self):
+        """Sending a location pin stores lat/lng in session.metadata."""
+        from services.session_manager import SessionManager
+
+        mgr = SessionManager(timeout_minutes=30)
+
+        with patch("main.session_manager", mgr), \
+             patch("main.line_bot_api") as mock_api, \
+             patch("main._chat_factory", return_value=MagicMock()):
+            mock_api.reply_message = AsyncMock()
+
+            from main import handle_location
+            event = make_location_event("user_tc3", 25.0441, 121.5598, "市民大道")
+            await handle_location(event)
+
+            session = mgr.get_session("user_tc3")
+            assert session is not None
+            assert session.metadata.get("lat") == pytest.approx(25.0441)
+            assert session.metadata.get("lng") == pytest.approx(121.5598)
