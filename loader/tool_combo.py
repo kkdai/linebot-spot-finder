@@ -91,8 +91,6 @@ def _call_places_api(
             }
         },
     }
-    if keyword:
-        body["textQuery"] = keyword
 
     try:
         response = httpx.post(
@@ -210,12 +208,17 @@ async def tool_combo_search(query: str, lat: float, lng: float) -> str:
         return f"❌ 抱歉，搜尋時發生錯誤：{str(e)[:120]}"
 
     # ── Step 2: Handle function calls ─────────────────────────────────────────
+    if not response.candidates:
+        logger.warning("Tool Combo Step 1: no candidates in response")
+        return response.text or "（無法取得回覆）"
+
     history = [
         types.Content(role="user", parts=[types.Part(text=enriched_query)]),
         response.candidates[0].content,
     ]
 
     function_call_found = False
+    function_response_parts = []
     for part in response.candidates[0].content.parts:
         if part.function_call:
             function_call_found = True
@@ -226,18 +229,18 @@ async def tool_combo_search(query: str, lat: float, lng: float) -> str:
             logger.info("Tool Combo: executing '%s' with args %s", fn_name, fn_args)
             result = _execute_function(fn_name, fn_args, lat, lng)
 
-            history.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_function_response(
-                            id=fn.id,
-                            name=fn_name,
-                            response=result,
-                        )
-                    ],
+            function_response_parts.append(
+                types.Part.from_function_response(
+                    id=fn.id,
+                    name=fn_name,
+                    response=result,
                 )
             )
+
+    if function_response_parts:
+        history.append(
+            types.Content(role="user", parts=function_response_parts)
+        )
 
     # ── Step 3: Final call ────────────────────────────────────────────────────
     if function_call_found:
