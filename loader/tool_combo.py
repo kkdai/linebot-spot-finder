@@ -20,7 +20,7 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-TOOL_COMBO_MODEL = "gemini-3-flash-preview"
+TOOL_COMBO_MODEL = os.getenv("TOOL_COMBO_MODEL", "gemini-2.5-flash")
 PLACES_API_URL = "https://places.googleapis.com/v1/places:searchNearby"
 PLACES_FIELD_MASK = (
     "places.displayName,"
@@ -192,7 +192,6 @@ async def tool_combo_search(query: str, lat: float, lng: float) -> str:
                 function_declarations=[SEARCH_NEARBY_RESTAURANTS_FN],
             )
         ],
-        include_server_side_tool_invocations=True,
     )
 
     # ── Step 1: First call ────────────────────────────────────────────────────
@@ -230,10 +229,12 @@ async def tool_combo_search(query: str, lat: float, lng: float) -> str:
             result = _execute_function(fn_name, fn_args, lat, lng)
 
             function_response_parts.append(
-                types.Part.from_function_response(
-                    id=fn.id,
-                    name=fn_name,
-                    response=result,
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=fn.id,
+                        name=fn_name,
+                        response=result,
+                    )
                 )
             )
 

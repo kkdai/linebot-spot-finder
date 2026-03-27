@@ -136,3 +136,40 @@ def test_execute_function_unknown_returns_error():
     from loader.tool_combo import _execute_function
     result = _execute_function("nonexistent_fn", {}, lat=0.0, lng=0.0)
     assert "error" in result
+
+
+@pytest.mark.asyncio
+async def test_tool_combo_search_agentic_loop(monkeypatch):
+    """tool_combo_search executes the two-call agentic loop when function_call is returned."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "test-project")
+    monkeypatch.setenv("GOOGLE_MAPS_API_KEY", "test-key")
+
+    # Build a mock function_call part
+    mock_fn_call = MagicMock()
+    mock_fn_call.function_call = MagicMock()
+    mock_fn_call.function_call.name = "search_nearby_restaurants"
+    mock_fn_call.function_call.args = {"keyword": "熱炒", "min_rating": 4.0}
+    mock_fn_call.function_call.id = "call-1"
+
+    # Step 1 response — contains a function_call
+    mock_step1 = MagicMock()
+    mock_step1.candidates = [MagicMock()]
+    mock_step1.candidates[0].content = MagicMock()
+    mock_step1.candidates[0].content.parts = [mock_fn_call]
+    mock_step1.text = None
+
+    # Step 3 response — final answer
+    mock_step3 = MagicMock()
+    mock_step3.text = "附近有老王熱炒，評分4.5，地址：信義區"
+
+    mock_client = MagicMock()
+    mock_client.models.generate_content.side_effect = [mock_step1, mock_step3]
+
+    with patch("loader.tool_combo._call_places_api", return_value={"restaurants": []}), \
+         patch("google.genai.Client", return_value=mock_client):
+        from loader.tool_combo import tool_combo_search
+        result = await tool_combo_search("附近有什麼好吃的熱炒？", lat=25.04, lng=121.56)
+
+    # generate_content called twice (Step 1 + Step 3)
+    assert mock_client.models.generate_content.call_count == 2
+    assert result == "附近有老王熱炒，評分4.5，地址：信義區"
