@@ -26,3 +26,6 @@ CHAT_MODEL = os.getenv("CHAT_MODEL", "gemini-2.5-flash")
 # Session
 SESSION_TIMEOUT_MINUTES = int(os.getenv("SESSION_TIMEOUT_MINUTES", "30"))
 MAX_HISTORY_LENGTH = int(os.getenv("MAX_HISTORY_LENGTH", "20"))
+
+# Google Maps Platform
+GOOGLE_MAPS_API_KEY = get_required("GOOGLE_MAPS_API_KEY")

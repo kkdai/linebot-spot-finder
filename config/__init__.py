@@ -6,4 +6,5 @@ from .settings import (
     CHAT_MODEL,
     SESSION_TIMEOUT_MINUTES,
     MAX_HISTORY_LENGTH,
+    GOOGLE_MAPS_API_KEY,
 )
