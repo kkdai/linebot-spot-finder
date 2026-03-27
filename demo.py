@@ -1,16 +1,19 @@
 """
-Demo script — 不需要 LINE Bot，直接測試兩個核心功能：
+Demo script — 不需要 LINE Bot，直接測試三個核心功能：
   1. Maps Grounding：用座標搜尋附近地點
-  2. Gemini Chat：對話式問答 + Google Search grounding
+  2. Tool Combo：Google Maps grounding + Places API 一次呼叫（主路徑）
+  3. Gemini Chat：對話式問答 + Google Search grounding（fallback 路徑）
 
 使用方式：
   python demo.py maps        # 測試 Maps Grounding
+  python demo.py combo       # 測試 Tool Combo（主功能）
   python demo.py chat        # 測試 Gemini Chat
   python demo.py all         # 全部測試（預設）
 
 環境變數需求：
   GOOGLE_CLOUD_PROJECT=your-project-id
   GOOGLE_CLOUD_LOCATION=us-central1
+  GOOGLE_MAPS_API_KEY=your-maps-api-key   # combo 需要
 """
 
 import asyncio
@@ -20,13 +23,14 @@ from google import genai
 from google.genai import types
 
 from loader.maps_grounding import search_nearby_places
+from loader.tool_combo import tool_combo_search
 
 # ── 設定 ──────────────────────────────────────────────────
 
 import os
-GCP_PROJECT = os.environ.get("GOOGLE_CLOUD_PROJECT")
+GCP_PROJECT  = os.environ.get("GOOGLE_CLOUD_PROJECT")
 GCP_LOCATION = os.environ.get("GOOGLE_CLOUD_LOCATION", "us-central1")
-CHAT_MODEL = os.environ.get("CHAT_MODEL", "gemini-2.5-flash")
+CHAT_MODEL   = os.environ.get("CHAT_MODEL", "gemini-2.5-flash")
 
 # 市民大道 / 信義區附近
 DEMO_LAT = 25.0441
@@ -39,9 +43,9 @@ SEPARATOR = "─" * 50
 
 async def demo_maps():
     print(f"\n{SEPARATOR}")
-    print("Maps Grounding Demo")
+    print("1. Maps Grounding Demo")
     print(f"{SEPARATOR}")
-    print(f"座標：{DEMO_LAT}, {DEMO_LNG}（市民大道附近）\n")
+    print(f"座標：{DEMO_LAT}, {DEMO_LNG}（信義區市民大道附近）\n")
 
     cases = [
         ("restaurant", None),
@@ -62,11 +66,35 @@ async def demo_maps():
         print()
 
 
-# ── 2. Gemini Chat Demo ───────────────────────────────────
+# ── 2. Tool Combo Demo ────────────────────────────────────
+
+async def demo_tool_combo():
+    print(f"\n{SEPARATOR}")
+    print("2. Tool Combo Demo（Google Maps grounding + Places API）")
+    print(f"{SEPARATOR}")
+    print(f"座標：{DEMO_LAT}, {DEMO_LNG}（信義區市民大道附近）\n")
+
+    if not os.environ.get("GOOGLE_MAPS_API_KEY"):
+        print("❌ 請設定 GOOGLE_MAPS_API_KEY 環境變數\n")
+        return
+
+    queries = [
+        "請找評價 4 顆星以上、適合多人聚餐的熱炒店，列出名稱、地址和評論摘要。",
+        "附近有沒有 CP 值高的日式料理？",
+    ]
+
+    for q in queries:
+        print(f"[問] {q}")
+        result = await tool_combo_search(query=q, lat=DEMO_LAT, lng=DEMO_LNG)
+        print(f"[答] {result}")
+        print()
+
+
+# ── 3. Gemini Chat Demo ───────────────────────────────────
 
 def demo_chat():
     print(f"\n{SEPARATOR}")
-    print("Gemini Chat Demo（含 Google Search Grounding）")
+    print("3. Gemini Chat Demo（含 Google Search Grounding，fallback 路徑）")
     print(f"{SEPARATOR}\n")
 
     if not GCP_PROJECT:
@@ -116,6 +144,9 @@ async def main():
 
     if mode in ("maps", "all"):
         await demo_maps()
+
+    if mode in ("combo", "all"):
+        await demo_tool_combo()
 
     if mode in ("chat", "all"):
         demo_chat()
