@@ -239,7 +239,7 @@ class TestHandlePostback:
         with patch("main.line_bot_api") as mock_api:
             mock_api.reply_message = AsyncMock()
             from main import handle_postback
-            event = MagicMock(spec=PostbackEvent)
+            event = MagicMock()
             event.source = MagicMock(spec=SourceUser)
             event.source.user_id = "user1"
             event.postback.data = "not-valid-json"
